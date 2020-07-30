@@ -1,20 +1,11 @@
-# YA HOSSEIN
-import socket
+# # YA HOSSEIN
+import http.server
+import socketserver
 
-
-HOST = '127.0.0.1'
 PORT = 8000
 
+Handler = http.server.SimpleHTTPRequestHandler
 
-with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-    s.bind((HOST, PORT))
-    s.listen(5)
-    conn, addr = s.accept()
-
-    print('Connected by', addr)
-    while True:
-        data = conn.recv(512)
-        print(data.decode('ascii'))
-        if not data:
-            break
-        conn.sendall(b'HTTP/1.1 200 OK\r\n\r\n')
+with socketserver.TCPServer(("127.0.0.1", PORT), Handler) as httpd:
+    print("serving at port", PORT)
+    httpd.serve_forever()
