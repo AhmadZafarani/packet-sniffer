@@ -135,7 +135,7 @@ void got_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *pa
 			if (isprint(*ch))
 				printf("%c", *ch);
 			else
-				printf("%n");
+				printf("\n");
 			ch++;
 		}
 		printf("\n");
