@@ -10,15 +10,13 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
-
 /* default snap length (maximum bytes per packet to capture) */
 #define SNAP_LEN 1518
-
-/* ethernet headers are always exactly 14 bytes [1] */
+/* ethernet headers are always exactly 14 bytes */
 #define SIZE_ETHERNET 14
-
 /* Ethernet addresses are 6 bytes */
 #define ETHER_ADDR_LEN	6
+
 
 /* Ethernet header */
 struct sniff_ethernet {
@@ -72,96 +70,6 @@ struct sniff_tcp {
 };
 
 
-/*
- * print data in rows of 16 bytes: offset   hex   ascii
- *
- * 00000   47 45 54 20 2f 20 48 54  54 50 2f 31 2e 31 0d 0a   GET / HTTP/1.1..
- */
-void print_hex_ascii_line(const u_char *payload, int len, int offset)	{
-	int i;
-	int gap;
-	const u_char *ch;
-
-	/* offset */
-	printf("%05d   ", offset);
-	
-	/* hex */
-	ch = payload;
-	for(i = 0; i < len; i++) {
-		printf("%02x ", *ch);
-		ch++;
-		/* print extra space after 8th byte for visual aid */
-		if (i == 7)
-			printf(" ");
-	}
-	/* print space to handle line less than 8 bytes */
-	if (len < 8)
-		printf(" ");
-	
-	/* fill hex gap with spaces if not full line */
-	if (len < 16) {
-		gap = 16 - len;
-		for (i = 0; i < gap; i++) {
-			printf("   ");
-		}
-	}
-	printf("   ");
-	
-	/* ascii (if printable) */
-	ch = payload;
-	for(i = 0; i < len; i++) {
-		if (isprint(*ch))
-			printf("%c", *ch);
-		else
-			printf(".");
-		ch++;
-	}
-	printf("\n");
-}
-
-/*
- * print packet payload data (avoid printing binary data)
- */
-void print_payload(const u_char *payload, int len)	{
-	int len_rem = len;
-	int line_width = 16;			/* number of bytes per line */
-	int line_len;
-	int offset = 0;					/* zero-based offset counter */
-	const u_char *ch = payload;
-
-	if (len <= 0)
-		return;
-
-	/* data fits on one line */
-	if (len <= line_width) {
-		print_hex_ascii_line(ch, len, offset);
-		return;
-	}
-
-	/* data spans multiple lines */
-	for ( ;; ) {
-		/* compute current line length */
-		line_len = line_width % len_rem;
-		/* print line */
-		print_hex_ascii_line(ch, line_len, offset);
-		/* compute total remaining */
-		len_rem = len_rem - line_len;
-		/* shift pointer to remaining bytes to print */
-		ch = ch + line_len;
-		/* add offset */
-		offset = offset + line_width;
-		/* check if we have line width chars or less */
-		if (len_rem <= line_width) {
-			/* print last line and get out */
-			print_hex_ascii_line(ch, len_rem, offset);
-			break;
-		}
-	}
-}
-
-/*
- * dissect/print packet
- */
 void got_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *packet)	{
 	static int count = 1;                   /* packet counter */
 	
@@ -179,11 +87,11 @@ void got_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *pa
 	count++;
 	
 	/* define ethernet header */
-	ethernet = (struct sniff_ethernet*)(packet);
+	ethernet = (struct sniff_ethernet*) (packet);
 	
 	/* define/compute ip header offset */
-	ip = (struct sniff_ip*)(packet + SIZE_ETHERNET);
-	size_ip = IP_HL(ip)*4;
+	ip = (struct sniff_ip*) (packet + SIZE_ETHERNET);
+	size_ip = IP_HL(ip) * 4;
 	if (size_ip < 20) {
 		printf("   * Invalid IP header length: %u bytes\n", size_ip);
 		return;
@@ -193,32 +101,17 @@ void got_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *pa
 	printf("       From: %s\n", inet_ntoa(ip->ip_src));
 	printf("         To: %s\n", inet_ntoa(ip->ip_dst));
 	
-	/* determine protocol */	
-	switch(ip->ip_p) {
-		case IPPROTO_TCP:
-			printf("   Protocol: TCP\n");
-			break;
-		case IPPROTO_UDP:
-			printf("   Protocol: UDP\n");
-			return;
-		case IPPROTO_ICMP:
-			printf("   Protocol: ICMP\n");
-			return;
-		case IPPROTO_IP:
-			printf("   Protocol: IP\n");
-			return;
-		default:
-			printf("   Protocol: unknown\n");
-			return;
+	/* determine protocol */
+	if (ip->ip_p == IPPROTO_TCP)	{
+		printf("   Protocol: TCP\n");
+	} else	{
+		printf("   Protocol: not TCP\n");
+		return;
 	}
 	
-	/*
-	 *  OK, this packet is TCP.
-	 */
-	
 	/* define/compute tcp header offset */
-	tcp = (struct sniff_tcp*)(packet + SIZE_ETHERNET + size_ip);
-	size_tcp = TH_OFF(tcp)*4;
+	tcp = (struct sniff_tcp*) (packet + SIZE_ETHERNET + size_ip);
+	size_tcp = TH_OFF(tcp) * 4;
 	if (size_tcp < 20) {
 		printf("   * Invalid TCP header length: %u bytes\n", size_tcp);
 		return;
@@ -228,18 +121,24 @@ void got_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *pa
 	printf("   Dst port: %d\n", ntohs(tcp->th_dport));
 	
 	/* define/compute tcp payload (segment) offset */
-	payload = (u_char *)(packet + SIZE_ETHERNET + size_ip + size_tcp);
+	payload = (u_char *) (packet + SIZE_ETHERNET + size_ip + size_tcp);
 	
 	/* compute tcp payload (segment) size */
 	size_payload = ntohs(ip->ip_len) - (size_ip + size_tcp);
 	
-	/*
-	 * Print payload data; it might be binary, so don't just
-	 * treat it as a string.
-	 */
+	/* print payload data */
 	if (size_payload > 0) {
 		printf("   Payload (%d bytes):\n", size_payload);
-		print_payload(payload, size_payload);
+		int i;
+		const u_char *ch = payload;
+		for(i = 0; i < size_payload; i++) {
+			if (isprint(*ch))
+				printf("%c", *ch);
+			else
+				printf("%n");
+			ch++;
+		}
+		printf("\n");
 	}
 }
 
@@ -249,7 +148,7 @@ int main(int argc, char **argv) {
 	char errbuf[PCAP_ERRBUF_SIZE];		/* error buffer */
 	pcap_t *handle;				/* packet capture handle */
 
-	char filter_exp[] = "ip";		/* filter expression [3] */
+	char filter_exp[] = "host 127.0.0.1 and port 8000";		/* filter expression */
 	struct bpf_program fp;			/* compiled filter program (expression) */
 	bpf_u_int32 mask;			/* subnet mask */
 	bpf_u_int32 net;			/* ip */
@@ -258,7 +157,7 @@ int main(int argc, char **argv) {
 	char devs[50][50];
 	int count = 1 , n;
 	
-	/* first get the list of available devices*/
+	/* first get the list of available devices */
 	printf("Finding available devices ... ");
 	if( pcap_findalldevs( &alldevsp , errbuf) )	{
 		fprintf(stderr, "Error finding devices : %s" , errbuf);
@@ -266,7 +165,7 @@ int main(int argc, char **argv) {
 	}
 	printf("Done");
 
-	/* print the available devices*/
+	/* print the available devices */
 	printf("\nAvailable Devices are :\n");
 	for(device = alldevsp ; device != NULL ; device = device->next)	{
 		printf("%d. %s - %s\n" , count , device->name , device->description);
@@ -277,7 +176,7 @@ int main(int argc, char **argv) {
 		count++;
 	}
 	
-	/* ask user which device to sniff*/
+	/* ask user which device to sniff */
 	printf("Enter the number of the device you want to sniff : ");
 	scanf("%d" , &n);
 	dev = devs[n];
@@ -296,7 +195,7 @@ int main(int argc, char **argv) {
 		exit(EXIT_FAILURE);
 	}
 
-	/* make sure we're capturing on an Ethernet device [2] */
+	/* make sure we're capturing on an Ethernet device */
 	if (pcap_datalink(handle) != DLT_EN10MB) {
 		fprintf(stderr, "%s is not an Ethernet\n", dev);
 		exit(EXIT_FAILURE);
