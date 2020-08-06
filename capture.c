@@ -155,7 +155,6 @@ void got_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *pa
 		}
 		sprintf(temp, "\n");
 		strcat(log, temp);
-		printf("here\n");
 	} else	{
 		memset(log, '\0', strlen(log));
 		count--;
