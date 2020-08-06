@@ -78,12 +78,15 @@ void got_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *pa
 	const struct sniff_ip *ip;              /* The IP header */
 	const struct sniff_tcp *tcp;            /* The TCP header */
 	const char *payload;                    /* Packet payload */
+	char log [10000];
+	char temp [500];
 
 	int size_ip;
 	int size_tcp;
 	int size_payload;
 	
-	printf("\nPacket number %d:\n", count);
+	sprintf(temp, "\nPacket number %d:\n", count);
+	strcat(log, temp);
 	count++;
 	
 	/* define ethernet header */
@@ -93,19 +96,24 @@ void got_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *pa
 	ip = (struct sniff_ip*) (packet + SIZE_ETHERNET);
 	size_ip = IP_HL(ip) * 4;
 	if (size_ip < 20) {
-		printf("   * Invalid IP header length: %u bytes\n", size_ip);
+		sprintf(temp, "   * Invalid IP header length: %u bytes\n", size_ip);
+		strcat(log, temp);
 		return;
 	}
 
 	/* print source and destination IP addresses */
-	printf("       From: %s\n", inet_ntoa(ip->ip_src));
-	printf("         To: %s\n", inet_ntoa(ip->ip_dst));
+	sprintf(temp, "       From: %s\n", inet_ntoa(ip->ip_src));
+	strcat(log, temp);
+	sprintf(temp, "         To: %s\n", inet_ntoa(ip->ip_dst));
+	strcat(log, temp);
 	
 	/* determine protocol */
 	if (ip->ip_p == IPPROTO_TCP)	{
-		printf("   Protocol: TCP\n");
+		sprintf(temp, "   Protocol: TCP\n");
+		strcat(log, temp);
 	} else	{
-		printf("   Protocol: not TCP\n");
+		sprintf(temp, "   Protocol: not TCP\n");
+		strcat(log, temp);
 		return;
 	}
 	
@@ -113,12 +121,15 @@ void got_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *pa
 	tcp = (struct sniff_tcp*) (packet + SIZE_ETHERNET + size_ip);
 	size_tcp = TH_OFF(tcp) * 4;
 	if (size_tcp < 20) {
-		printf("   * Invalid TCP header length: %u bytes\n", size_tcp);
+		sprintf(temp, "   * Invalid TCP header length: %u bytes\n", size_tcp);
+		strcat(log, temp);
 		return;
 	}
 	
-	printf("   Src port: %d\n", ntohs(tcp->th_sport));
-	printf("   Dst port: %d\n", ntohs(tcp->th_dport));
+	sprintf(temp, "   Src port: %d\n", ntohs(tcp->th_sport));
+	strcat(log, temp);
+	sprintf(temp, "   Dst port: %d\n", ntohs(tcp->th_dport));
+	strcat(log, temp);
 	
 	/* define/compute tcp payload (segment) offset */
 	payload = (u_char *) (packet + SIZE_ETHERNET + size_ip + size_tcp);
@@ -126,19 +137,36 @@ void got_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *pa
 	/* compute tcp payload (segment) size */
 	size_payload = ntohs(ip->ip_len) - (size_ip + size_tcp);
 	
-	/* print payload data */
+	/* print payload data, if it is a HTTP packet */
 	if (size_payload > 0) {
-		printf("   Payload (%d bytes):\n", size_payload);
+		sprintf(temp, "   Payload (%d bytes):\n", size_payload);
+		strcat(log, temp);
 		int i;
 		const u_char *ch = payload;
 		for(i = 0; i < size_payload; i++) {
-			if (isprint(*ch))
-				printf("%c", *ch);
-			else
-				printf("\n");
+			if (isprint(*ch))	{
+				sprintf(temp, "%c", *ch);
+				strcat(log, temp);
+			}	else	{	
+				sprintf(temp, "\n");
+				strcat(log, temp);
+			}
 			ch++;
 		}
-		printf("\n");
+		sprintf(temp, "\n");
+		strcat(log, temp);
+		printf("here\n");
+	} else	{
+		memset(log, '\0', strlen(log));
+		count--;
+		return;
+	}
+	
+	if(strstr(log, "HTTP") != NULL) {
+		printf("%s", log);
+	}	else	{
+		memset(log, '\0', strlen(log));
+		count--;
 	}
 }
 
