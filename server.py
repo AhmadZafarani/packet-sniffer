@@ -28,7 +28,7 @@ class MyHandler(http.server.SimpleHTTPRequestHandler):
 
 
 PORT = 8000
-HOST = "127.0.0.1"
+HOST = "127.2.3.4"
 Handler = MyHandler
 
 with socketserver.TCPServer((HOST, PORT), Handler) as httpd:

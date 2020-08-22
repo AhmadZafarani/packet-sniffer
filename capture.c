@@ -69,8 +69,24 @@ struct sniff_tcp {
         u_short th_urp;                 /* urgent pointer */
 };
 
+struct sniff_udp {
+        u_short th_sport;               /* source port */
+        u_short th_dport;               /* destination port */
+		u_short th_len;					/* length */
+		u_short th_sum;                 /* checksum */
+};
 
-void got_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *packet)	{
+struct sniff_dns {
+        u_short trans_ID;               	/* Transaction ID */
+		u_char  flags;						/* Flags */
+        u_short question;               	/* Questions */
+		u_short answer;						/* Answer RRs */
+		u_short authority;               	/* Authority RRs */
+		u_short additional;					/* Additional RRs */
+};
+
+
+void http_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *packet)	{
 	static int count = 1;                   /* packet counter */
 	
 	/* declare pointers to packet headers */
@@ -170,12 +186,85 @@ void got_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *pa
 }
 
 
+void dns_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *packet)	{
+	static int count = 1;                   /* packet counter */
+	
+	/* declare pointers to packet headers */
+	const struct sniff_ethernet *ethernet;  /* The ethernet header [1] */
+	const struct sniff_ip *ip;              /* The IP header */
+	const struct sniff_udp *udp;            /* The UDP header */
+	const char *payload;                    /* Packet payload */
+	const struct sniff_dns *dns;			/* DNS */
+
+	int size_ip;
+	int size_udp;
+	int size_payload;
+	
+	printf("\nPacket number %d:\n", count);
+	count++;
+	
+	/* define ethernet header */
+	ethernet = (struct sniff_ethernet*) (packet);
+	
+	/* define/compute ip header offset */
+	ip = (struct sniff_ip*) (packet + SIZE_ETHERNET);
+	size_ip = IP_HL(ip) * 4;
+	if (size_ip < 20) {
+		printf("   * Invalid IP header length: %u bytes\n", size_ip);
+		return;
+	}
+
+	/* print source and destination IP addresses */
+	printf("       From: %s\n", inet_ntoa(ip->ip_src));
+	printf("         To: %s\n", inet_ntoa(ip->ip_dst));
+
+	/* determine protocol */
+	if (ip->ip_p == IPPROTO_UDP)	{
+		printf("   Protocol: UDP\n");
+	}	else	{
+		printf("   Protocol: not UDP\n");
+		return;
+	}
+	
+	/* define/compute tcp header offset */
+	udp = (struct sniff_udp*) (packet + SIZE_ETHERNET + size_ip);
+	size_udp = udp->th_len;
+	if (size_udp < 8) {
+		printf("   * Invalid UDP header length: %u bytes\n", size_udp);
+		return;
+	}
+	
+	printf("   Src port: %d\n", ntohs(udp->th_sport));
+	printf("   Dst port: %d\n", ntohs(udp->th_dport));
+	
+	dns = (struct sniff_dns*) (packet + SIZE_ETHERNET + size_ip + 8);
+	printf("	ID: %x\n", dns->trans_ID);
+
+	char info [1000];
+	if (dns->flags & 0x8000) {
+		strcat(info, "message is QUERY\t");
+	}	else	{
+		strcat(info, "message is RESPONSE\t");
+	}
+	if (!(dns->flags & 0x7800)) {
+		strcat(info, "STANDARD query\t");
+	}	else	{
+		strcat(info, "NON standard query\t");
+	}
+	if (!(dns->flags & 0x0004)) {
+		strcat(info, "server failure.");
+	}
+	printf("	Info: %s\n", info);
+}
+
+
 int main(int argc, char **argv) {
 	char *dev = NULL;			/* capture device name */
 	char errbuf[PCAP_ERRBUF_SIZE];		/* error buffer */
 	pcap_t *handle;				/* packet capture handle */
 
-	char filter_exp[] = "host 127.0.0.1 and port 8000";		/* filter expression */
+	// char filter_exp[] = "host 127.0.0.1 and port 8000";		/* filter expression */
+	char filter_exp[] = "udp port 53";		/* filter expression */
 	struct bpf_program fp;			/* compiled filter program (expression) */
 	bpf_u_int32 mask;			/* subnet mask */
 	bpf_u_int32 net;			/* ip */
@@ -242,7 +331,8 @@ int main(int argc, char **argv) {
 	printf("Filter set successfully\n");
 
 	/* now we can set our callback function */
-	pcap_loop(handle, -1, got_packet, NULL);
+	// pcap_loop(handle, -1, http_packet, NULL);
+	pcap_loop(handle, -1, dns_packet, NULL);
 
 	/* cleanup */
 	pcap_freecode(&fp);
