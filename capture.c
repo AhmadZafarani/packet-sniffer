@@ -276,34 +276,33 @@ void dns_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *pa
 	}
 	printf("\tInfo: %s\n", info);
 
-	/* print query address */
+	/* print DNS query */
 	query = (u_char *) (packet + SIZE_ETHERNET + size_ip + 8 + 12);
 	size_query = ntohs(udp->th_len) - 20;
 	if (size_query > 0) {
 		printf("\tQuery (%d bytes):\n", size_query);
 
-		char address [100] = {'\0'};
-		if (ntohs(dns->additional) == 0) {
-			int i;
-			const u_char *ch = query;
-			for(i = 0; i < size_query - 4; i++) {
-				if (isprint(*ch))	{
-					address[i] = *ch;
-				}	else	{
-					address[i] = '.';
-				}
-				ch++;
+		/* determine query data */
+		char name [100] = {'\0'};
+		int i;
+		const u_char *ch = query;
+		for (i = 0; i < size_query - 4; i++) {
+			if (isprint(*ch))	{
+				name[i] = *ch;
+			}	else	{
+				name[i] = '.';
 			}
-			printf("\t\taddress: %s", trimDOT(address));
+			ch++;
+		}
+		printf("\t\tName: %s", trimDOT(name));
 
-			/* determine type */
-			unsigned short *t = (unsigned short *) (packet + SIZE_ETHERNET + size_ip + 8 + 12 + size_query - 4);
-			unsigned short type = ntohs(*t);
-			if (type == 1) {
-				printf("\n\t\ttype:  A\n");
-			} else if (type == 28) {
-				printf("\n\t\ttype:  AAAA\n");
-			}
+		/* determine type */
+		unsigned short *t = (unsigned short *) (packet + SIZE_ETHERNET + size_ip + 8 + 12 + size_query - 4);
+		unsigned short type = ntohs(*t);
+		if (type == 1) {
+			printf("\n\t\ttype:  A\n");
+		} else if (type == 28) {
+			printf("\n\t\ttype:  AAAA\n");
 		}
 	}
 }
