@@ -84,7 +84,6 @@ struct sniff_dns {
 		u_short authority;             	/* Authority RRs */
 		u_short additional;				/* Additional RRs */
 };
-#define swap(x)				(x >> 8) | (x << 8);
 
 
 void http_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *packet)	{
@@ -187,6 +186,25 @@ void http_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *p
 }
 
 
+char *trimDOT(char *str) {
+  char *end;
+
+  // Trim leading space
+  while((unsigned char)* str == '.')
+  	str++;
+
+  // Trim trailing space
+  end = str + strlen(str) - 1;
+  while(end > str && (unsigned char)* end == '.')
+  	end--;
+
+  // Write new null terminator character
+  end[1] = '\0';
+
+  return str;
+}
+
+
 void dns_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *packet)	{
 	static int count = 1;                   /* packet counter */
 	
@@ -199,6 +217,7 @@ void dns_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *pa
 
 	int size_ip;
 	int size_udp;
+	int size_query;
 	
 	printf("\nPacket number %d:\n", count);
 	count++;
@@ -239,9 +258,8 @@ void dns_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *pa
 	
 	/* treat UDP payload like DNS packet - print packet ID */
 	dns = (struct sniff_dns*) (packet + SIZE_ETHERNET + size_ip + 8);
-	unsigned short th_id = swap(dns->th_id);
-	unsigned short flags = swap(dns->flags);
-	printf("\tID: %x (hex)\n", th_id);
+	unsigned short flags = ntohs(dns->flags);
+	printf("\tID: 0x%x\n", ntohs(dns->th_id));
 	
 	/* print info got from packet FLAGS */
     char info [100] = {'\0'};
@@ -258,8 +276,36 @@ void dns_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *pa
 	}
 	printf("\tInfo: %s\n", info);
 
+	/* print query address */
 	query = (u_char *) (packet + SIZE_ETHERNET + size_ip + 8 + 12);
-	
+	size_query = ntohs(udp->th_len) - 20;
+	if (size_query > 0) {
+		printf("\tQuery (%d bytes):\n", size_query);
+
+		char address [100] = {'\0'};
+		if (ntohs(dns->additional) == 0) {
+			int i;
+			const u_char *ch = query;
+			for(i = 0; i < size_query - 4; i++) {
+				if (isprint(*ch))	{
+					address[i] = *ch;
+				}	else	{
+					address[i] = '.';
+				}
+				ch++;
+			}
+			printf("\t\taddress: %s", trimDOT(address));
+
+			/* determine type */
+			unsigned short *t = (unsigned short *) (packet + SIZE_ETHERNET + size_ip + 8 + 12 + size_query - 4);
+			unsigned short type = ntohs(*t);
+			if (type == 1) {
+				printf("\n\t\ttype:  A\n");
+			} else if (type == 28) {
+				printf("\n\t\ttype:  AAAA\n");
+			}
+		}
+	}
 }
 
 
