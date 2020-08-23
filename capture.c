@@ -77,13 +77,14 @@ struct sniff_udp {
 };
 
 struct sniff_dns {
-        u_short trans_ID;               	/* Transaction ID */
-		u_char  flags;						/* Flags */
-        u_short question;               	/* Questions */
-		u_short answer;						/* Answer RRs */
-		u_short authority;               	/* Authority RRs */
-		u_short additional;					/* Additional RRs */
+        u_short th_id;     				/* Transaction ID */
+		u_short flags;					/* Flags */
+        u_short question;              	/* Questions */
+		u_short answer;					/* Answer RRs */
+		u_short authority;             	/* Authority RRs */
+		u_short additional;				/* Additional RRs */
 };
+#define swap(x)				(x >> 8) | (x << 8);
 
 
 void http_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *packet)	{
@@ -190,15 +191,14 @@ void dns_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *pa
 	static int count = 1;                   /* packet counter */
 	
 	/* declare pointers to packet headers */
-	const struct sniff_ethernet *ethernet;  /* The ethernet header [1] */
+	const struct sniff_ethernet *ethernet;  /* The ethernet header */
 	const struct sniff_ip *ip;              /* The IP header */
 	const struct sniff_udp *udp;            /* The UDP header */
-	const char *payload;                    /* Packet payload */
 	const struct sniff_dns *dns;			/* DNS */
+	const char *query;						/* QUERY part of DNS packet */
 
 	int size_ip;
 	int size_udp;
-	int size_payload;
 	
 	printf("\nPacket number %d:\n", count);
 	count++;
@@ -215,14 +215,14 @@ void dns_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *pa
 	}
 
 	/* print source and destination IP addresses */
-	printf("       From: %s\n", inet_ntoa(ip->ip_src));
-	printf("         To: %s\n", inet_ntoa(ip->ip_dst));
+	printf("\tFrom: %s\n", inet_ntoa(ip->ip_src));
+	printf("\tTo: %s\n", inet_ntoa(ip->ip_dst));
 
 	/* determine protocol */
 	if (ip->ip_p == IPPROTO_UDP)	{
-		printf("   Protocol: UDP\n");
+		printf("\tProtocol: UDP\n");
 	}	else	{
-		printf("   Protocol: not UDP\n");
+		printf("\tProtocol: not UDP\n");
 		return;
 	}
 	
@@ -234,27 +234,32 @@ void dns_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *pa
 		return;
 	}
 	
-	printf("   Src port: %d\n", ntohs(udp->th_sport));
-	printf("   Dst port: %d\n", ntohs(udp->th_dport));
+	printf("\tSrc port: %d\n", ntohs(udp->th_sport));
+	printf("\tDst port: %d\n", ntohs(udp->th_dport));
 	
+	/* treat UDP payload like DNS packet - print packet ID */
 	dns = (struct sniff_dns*) (packet + SIZE_ETHERNET + size_ip + 8);
-	printf("	ID: %x\n", dns->trans_ID);
-
-	char info [1000];
-	if (dns->flags & 0x8000) {
-		strcat(info, "message is QUERY\t");
-	}	else	{
+	unsigned short th_id = swap(dns->th_id);
+	unsigned short flags = swap(dns->flags);
+	printf("\tID: %x (hex)\n", th_id);
+	
+	/* print info got from packet FLAGS */
+    char info [100] = {'\0'};
+	if (flags & 0x8000) {
 		strcat(info, "message is RESPONSE\t");
-	}
-	if (!(dns->flags & 0x7800)) {
-		strcat(info, "STANDARD query\t");
 	}	else	{
-		strcat(info, "NON standard query\t");
+		strcat(info, "message is QUERY\t");
 	}
-	if (!(dns->flags & 0x0004)) {
+	if (!(flags & 0x7800)) {
+		strcat(info, "STANDARD query\t");
+	}
+	if (flags & 0x0002) {
 		strcat(info, "server failure.");
 	}
-	printf("	Info: %s\n", info);
+	printf("\tInfo: %s\n", info);
+
+	query = (u_char *) (packet + SIZE_ETHERNET + size_ip + 8 + 12);
+	
 }
 
 
