@@ -346,15 +346,15 @@ void session_hijacking(u_char *args, const struct pcap_pkthdr *header, const u_c
 	static struct sniff_ip *curr_ip = NULL;		/* current session ip */
 	static struct sniff_tcp *curr_tcp = NULL;	/* current session protocol */
 	static struct sniff_udp *curr_udp = NULL;
-	
+
 	/* declare pointers to packet headers */
-	const struct sniff_ethernet *ethernet;  /* The ethernet header */
-	struct sniff_ip *ip;              /* The IP header */
+	const struct sniff_ethernet *ethernet;  	/* The ethernet header */
+	struct sniff_ip *ip;             		 	/* The IP header */
 	int size_ip;
-	
+
 	/* define ethernet header */
 	ethernet = (struct sniff_ethernet*) (packet);
-	
+
 	/* define/compute ip header offset */
 	ip = (struct sniff_ip*) (packet + SIZE_ETHERNET);
 	size_ip = IP_HL(ip) * 4;
@@ -366,23 +366,35 @@ void session_hijacking(u_char *args, const struct pcap_pkthdr *header, const u_c
 	/* first packet */
 	if (curr_ip == NULL)
 		curr_ip = ip;
-	
+
 	/* determine protocol */
-	if (ip->ip_p == IPPROTO_TCP)	{
+	if (ip->ip_p == IPPROTO_TCP) {
 		struct sniff_tcp *tcp = (struct sniff_tcp*) (packet + SIZE_ETHERNET + size_ip);
 		int size_tcp = TH_OFF(tcp) * 4;
 		if (size_tcp < 20) {
 			printf("\t* Invalid TCP header length: %u bytes\n", size_tcp);
 			return;
 		}
-		
+
+		/* first packet */
+		if (curr_tcp == NULL) {
+			curr_tcp = tcp;
+			return;
+		}
+
 		/* check if current packet is in same session with last packets */
-		if (same_session_ip(curr_ip, ip) && curr_tcp != NULL &&
+		if (same_session_ip(curr_ip, ip) &&
 			same_session_port(ntohs(curr_tcp->th_sport), ntohs(curr_tcp->th_dport), ntohs(tcp->th_sport), ntohs(tcp->th_dport))) {
 			pkt_count++;
 			return;
 		}
 
+		/* first packet of new session recieved */
+		printf("\nSession number %d:\n", sess_count);
+		printf("\tthere are %d packets in this Session\n", pkt_count);
+		printf("\tprotocol: TCP\n");
+		printf("\tdata communication was between these sockets:\n\t\tip: %s\tport: %d\n\t\tip: %s\tport: %d\n", 
+				inet_ntoa(curr_ip->ip_src), ntohs(curr_tcp->th_sport), inet_ntoa(curr_ip->ip_dst), ntohs(curr_tcp->th_dport));
 		curr_tcp = tcp;
 		curr_udp = NULL;
 
@@ -394,33 +406,34 @@ void session_hijacking(u_char *args, const struct pcap_pkthdr *header, const u_c
 			return;
 		}
 
+		/* first packet */
+		if (curr_udp == NULL) {
+			curr_udp = udp;
+			return;
+		}
+
 		/* check if current packet is in same session with last packets */
-		if (same_session_ip(curr_ip, ip) && curr_udp != NULL &&
+		if (same_session_ip(curr_ip, ip) &&
 			same_session_port(ntohs(curr_udp->th_sport), ntohs(curr_udp->th_dport), ntohs(udp->th_sport), ntohs(udp->th_dport))) {
 			pkt_count++;
 			return;
 		}
-		
+
+		/* first packet of new session recieved */
+		printf("\nSession number %d:\n", sess_count);
+		printf("\tthere are %d packets in this Session\n", pkt_count);
+		printf("\tprotocol: UDP\n");
+		printf("\tdata communication was between these sockets:\n\t\tip: %s\tport: %d\n\t\tip: %s\tport: %d\n", 
+				inet_ntoa(curr_ip->ip_src), ntohs(curr_udp->th_sport), inet_ntoa(curr_ip->ip_dst), ntohs(curr_udp->th_dport));
 		curr_udp = udp;
 		curr_tcp = NULL;
 
 	}	else	{
-		printf("new protocol\n");
+		printf("new protocol: %d\n", ip->ip_p);
 		return;
 	}
 
 	/* first packet of new session recieved */
-	printf("\nSession number %d:\n", sess_count);
-	printf("\tthere are %d packets in this Session\n", pkt_count);
-	if (ip->ip_p == IPPROTO_TCP) {
-		printf("\tprotocol: TCP\n");
-		printf("\tdata communication was between these sockets:\n\t\tip: %s\tport: %d\n\t\tip: %s\tport: %d", 
-				inet_ntoa(curr_ip->ip_src), ntohs(curr_tcp->th_sport), inet_ntoa(curr_ip->ip_dst), ntohs(curr_tcp->th_dport));
-	}	else	{
-		printf("\tprotocol: UDP\n");
-		printf("\tdata communication was between these sockets:\n\t\tip: %s\tport: %d\n\t\tip: %s\tport: %d", 
-				inet_ntoa(curr_ip->ip_src), ntohs(curr_udp->th_sport), inet_ntoa(curr_ip->ip_dst), ntohs(curr_udp->th_dport));
-	}
 	pkt_count = 1;
 	sess_count++;
 	curr_ip = ip;
@@ -428,16 +441,16 @@ void session_hijacking(u_char *args, const struct pcap_pkthdr *header, const u_c
 
 
 int main(int argc, char **argv) {
-	char *dev = NULL;			/* capture device name */
-	char errbuf[PCAP_ERRBUF_SIZE];		/* error buffer */
-	pcap_t *handle;				/* packet capture handle */
+	char *dev = NULL;											/* capture device name */
+	char errbuf[PCAP_ERRBUF_SIZE];								/* error buffer */
+	pcap_t *handle;												/* packet capture handle */
 
-	// char filter_exp[] = "host 127.0.0.1 and port 8000";		/* filter expression */
-	// char filter_exp[] = "udp port 53";		/* filter expression */
-	char filter_exp[] = "";		/* filter expression */
-	struct bpf_program fp;			/* compiled filter program (expression) */
-	bpf_u_int32 mask;			/* subnet mask */
-	bpf_u_int32 net;			/* ip */
+	// char filter_exp[] = "host 127.2.3.4 and port 8000";		/* filter expression */
+	// char filter_exp[] = "udp port 53";						/* filter expression */
+	char filter_exp[] = "tcp or udp";							/* filter expression */
+	struct bpf_program fp;										/* compiled filter program (expression) */
+	bpf_u_int32 mask;											/* subnet mask */
+	bpf_u_int32 net;											/* ip */
 
 	pcap_if_t *alldevsp , *device;
 	char devs[50][50];
