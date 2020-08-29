@@ -10,6 +10,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <time.h>
+#include <syslog.h>
 
 /* default snap length (maximum bytes per packet to capture) */
 #define SNAP_LEN 1518
@@ -366,6 +367,7 @@ void session_hijacking(u_char *args, const struct pcap_pkthdr *header, const u_c
 	size_ip = IP_HL(ip) * 4;
 	if (size_ip < 20) {
 		printf("\t* Invalid IP header length: %u bytes\n", size_ip);
+    	// syslog(LOG_ERR, "\t* Invalid IP header length: %u bytes\n", size_ip);
 		return;
 	}
 
@@ -379,6 +381,7 @@ void session_hijacking(u_char *args, const struct pcap_pkthdr *header, const u_c
 		int size_tcp = TH_OFF(tcp) * 4;
 		if (size_tcp < 20) {
 			printf("\t* Invalid TCP header length: %u bytes\n", size_tcp);
+    		// syslog(LOG_ERR, "\t* Invalid TCP header length: %u bytes\n", size_tcp);
 			return;
 		}
 
@@ -398,15 +401,23 @@ void session_hijacking(u_char *args, const struct pcap_pkthdr *header, const u_c
 		/* first packet of new session recieved */
 		printf("\nSession number %d:\n", sess_count);
 		printf("\tthere are %d packets in this Session\n", pkt_count);
+    	// syslog(LOG_DEBUG, "\nSession number %d:\n", sess_count);
+		// syslog(LOG_DEBUG, "\tthere are %d packets in this Session\n", pkt_count);
 		if (curr_ip->ip_p == IPPROTO_TCP) {
 			printf("\tprotocol: TCP\n\tdata communication was between these sockets:\n");
 			printf("\t\tip: %s\tport: %d\n", inet_ntoa(curr_ip->ip_src), ntohs(curr_tcp->th_sport));
 			printf("\t\tip: %s\tport: %d\n", inet_ntoa(curr_ip->ip_dst), ntohs(curr_tcp->th_dport));
+			// syslog(LOG_DEBUG, "\tprotocol: TCP\n\tdata communication was between these sockets:\n");
+			// syslog(LOG_DEBUG, "\t\tip: %s\tport: %d\n", inet_ntoa(curr_ip->ip_src), ntohs(curr_tcp->th_sport));
+			// syslog(LOG_DEBUG, "\t\tip: %s\tport: %d\n", inet_ntoa(curr_ip->ip_dst), ntohs(curr_tcp->th_dport));
 			tcp_sess_per++;
 		}	else	{
 			printf("\tprotocol: UDP\n\tdata communication was between these sockets:\n");
 			printf("\t\tip: %s\tport: %d\n", inet_ntoa(curr_ip->ip_src), ntohs(curr_udp->th_sport));
 			printf("\t\tip: %s\tport: %d\n", inet_ntoa(curr_ip->ip_dst), ntohs(curr_udp->th_dport));
+			// syslog(LOG_DEBUG, "\tprotocol: UDP\n\tdata communication was between these sockets:\n");
+			// syslog(LOG_DEBUG, "\t\tip: %s\tport: %d\n", inet_ntoa(curr_ip->ip_src), ntohs(curr_udp->th_sport));
+			// syslog(LOG_DEBUG, "\t\tip: %s\tport: %d\n", inet_ntoa(curr_ip->ip_dst), ntohs(curr_udp->th_dport));
 			udp_sess_per++;
 		}
 		curr_tcp = tcp;
@@ -436,15 +447,23 @@ void session_hijacking(u_char *args, const struct pcap_pkthdr *header, const u_c
 		/* first packet of new session recieved */
 		printf("\nSession number %d:\n", sess_count);
 		printf("\tthere are %d packets in this Session\n", pkt_count);
+		// syslog(LOG_DEBUG, "\nSession number %d:\n", sess_count);
+		// syslog(LOG_DEBUG, "\tthere are %d packets in this Session\n", pkt_count);
 		if (curr_ip->ip_p == IPPROTO_TCP) {
 			printf("\tprotocol: TCP\n\tdata communication was between these sockets:\n");
 			printf("\t\tip: %s\tport: %d\n", inet_ntoa(curr_ip->ip_src), ntohs(curr_tcp->th_sport));
 			printf("\t\tip: %s\tport: %d\n", inet_ntoa(curr_ip->ip_dst), ntohs(curr_tcp->th_dport));
+			// syslog(LOG_DEBUG, "\tprotocol: TCP\n\tdata communication was between these sockets:\n");
+			// syslog(LOG_DEBUG, "\t\tip: %s\tport: %d\n", inet_ntoa(curr_ip->ip_src), ntohs(curr_tcp->th_sport));
+			// syslog(LOG_DEBUG, "\t\tip: %s\tport: %d\n", inet_ntoa(curr_ip->ip_dst), ntohs(curr_tcp->th_dport));
 			tcp_sess_per++;
 		}	else	{
 			printf("\tprotocol: UDP\n\tdata communication was between these sockets:\n");
 			printf("\t\tip: %s\tport: %d\n", inet_ntoa(curr_ip->ip_src), ntohs(curr_udp->th_sport));
 			printf("\t\tip: %s\tport: %d\n", inet_ntoa(curr_ip->ip_dst), ntohs(curr_udp->th_dport));
+			// syslog(LOG_DEBUG, "\tprotocol: UDP\n\tdata communication was between these sockets:\n");
+			// syslog(LOG_DEBUG, "\t\tip: %s\tport: %d\n", inet_ntoa(curr_ip->ip_src), ntohs(curr_udp->th_sport));
+			// syslog(LOG_DEBUG, "\t\tip: %s\tport: %d\n", inet_ntoa(curr_ip->ip_dst), ntohs(curr_udp->th_dport));
 			udp_sess_per++;
 		}
 		curr_udp = udp;
@@ -452,6 +471,7 @@ void session_hijacking(u_char *args, const struct pcap_pkthdr *header, const u_c
 
 	}	else	{
 		printf("new protocol: %d\n", ip->ip_p);
+		// syslog(LOG_WARNING, "new protocol: %d\n", ip->ip_p);
 		return;
 	}
 
@@ -465,6 +485,8 @@ void session_hijacking(u_char *args, const struct pcap_pkthdr *header, const u_c
 	if (now - start > period) {
 		start = now;
 		printf("\n** there were %d UDP Sessions and %d TCP Sessions in last %d seconds. **\n", udp_sess_per, tcp_sess_per, period);
+		// syslog(LOG_INFO, "\n** there were %d UDP Sessions and %d TCP Sessions in last %d seconds. **\n", udp_sess_per, 
+				// tcp_sess_per, period);
 		tcp_sess_per = 0;
 		udp_sess_per = 0;
 	}
@@ -547,10 +569,12 @@ int main(int argc, char **argv) {
 	/* now we can set our callback function */
 	// pcap_loop(handle, -1, http_packet, NULL);
 	// pcap_loop(handle, -1, dns_packet, NULL);
+	openlog("packet sniffer: ", 0, LOG_LOCAL0);
 	start = time(NULL);
 	pcap_loop(handle, -1, session_hijacking, NULL);
 
 	/* cleanup */
+    closelog();
 	pcap_freecode(&fp);
 	pcap_close(handle);
 
