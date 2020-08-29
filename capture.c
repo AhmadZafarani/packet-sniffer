@@ -340,6 +340,9 @@ int same_session_port(int curr_s, int curr_d, int pkt_s, int pkt_d) {
 
 
 void session_hijacking(u_char *args, const struct pcap_pkthdr *header, const u_char *packet)	{
+	static int counter = 0;
+	printf("** %d **\n", ++counter);
+
 	static int pkt_count = 1;                   /* current session packet counter */
 	static int sess_count = 1;					/* session counter */
 
@@ -377,7 +380,7 @@ void session_hijacking(u_char *args, const struct pcap_pkthdr *header, const u_c
 		}
 
 		/* first packet */
-		if (curr_tcp == NULL) {
+		if (curr_tcp == NULL && curr_udp == NULL) {
 			curr_tcp = tcp;
 			return;
 		}
@@ -392,9 +395,15 @@ void session_hijacking(u_char *args, const struct pcap_pkthdr *header, const u_c
 		/* first packet of new session recieved */
 		printf("\nSession number %d:\n", sess_count);
 		printf("\tthere are %d packets in this Session\n", pkt_count);
-		printf("\tprotocol: TCP\n");
-		printf("\tdata communication was between these sockets:\n\t\tip: %s\tport: %d\n\t\tip: %s\tport: %d\n", 
-				inet_ntoa(curr_ip->ip_src), ntohs(curr_tcp->th_sport), inet_ntoa(curr_ip->ip_dst), ntohs(curr_tcp->th_dport));
+		if (curr_ip->ip_p == IPPROTO_TCP) {
+			printf("\tprotocol: TCP\n\tdata communication was between these sockets:\n");
+			printf("\t\tip: %s\tport: %d\n", inet_ntoa(curr_ip->ip_src), ntohs(curr_tcp->th_sport));
+			printf("\t\tip: %s\tport: %d\n", inet_ntoa(curr_ip->ip_dst), ntohs(curr_tcp->th_dport));
+		}	else	{
+			printf("\tprotocol: UDP\n\tdata communication was between these sockets:\n");
+			printf("\t\tip: %s\tport: %d\n", inet_ntoa(curr_ip->ip_src), ntohs(curr_udp->th_sport));
+			printf("\t\tip: %s\tport: %d\n", inet_ntoa(curr_ip->ip_dst), ntohs(curr_udp->th_dport));
+		}
 		curr_tcp = tcp;
 		curr_udp = NULL;
 
@@ -407,7 +416,7 @@ void session_hijacking(u_char *args, const struct pcap_pkthdr *header, const u_c
 		}
 
 		/* first packet */
-		if (curr_udp == NULL) {
+		if (curr_tcp == NULL && curr_udp == NULL) {
 			curr_udp = udp;
 			return;
 		}
@@ -422,9 +431,15 @@ void session_hijacking(u_char *args, const struct pcap_pkthdr *header, const u_c
 		/* first packet of new session recieved */
 		printf("\nSession number %d:\n", sess_count);
 		printf("\tthere are %d packets in this Session\n", pkt_count);
-		printf("\tprotocol: UDP\n");
-		printf("\tdata communication was between these sockets:\n\t\tip: %s\tport: %d\n\t\tip: %s\tport: %d\n", 
-				inet_ntoa(curr_ip->ip_src), ntohs(curr_udp->th_sport), inet_ntoa(curr_ip->ip_dst), ntohs(curr_udp->th_dport));
+		if (curr_ip->ip_p == IPPROTO_TCP) {
+			printf("\tprotocol: TCP\n\tdata communication was between these sockets:\n");
+			printf("\t\tip: %s\tport: %d\n", inet_ntoa(curr_ip->ip_src), ntohs(curr_tcp->th_sport));
+			printf("\t\tip: %s\tport: %d\n", inet_ntoa(curr_ip->ip_dst), ntohs(curr_tcp->th_dport));
+		}	else	{
+			printf("\tprotocol: UDP\n\tdata communication was between these sockets:\n");
+			printf("\t\tip: %s\tport: %d\n", inet_ntoa(curr_ip->ip_src), ntohs(curr_udp->th_sport));
+			printf("\t\tip: %s\tport: %d\n", inet_ntoa(curr_ip->ip_dst), ntohs(curr_udp->th_dport));
+		}
 		curr_udp = udp;
 		curr_tcp = NULL;
 
@@ -447,7 +462,7 @@ int main(int argc, char **argv) {
 
 	// char filter_exp[] = "host 127.2.3.4 and port 8000";		/* filter expression */
 	// char filter_exp[] = "udp port 53";						/* filter expression */
-	char filter_exp[] = "tcp or udp";							/* filter expression */
+	char filter_exp[] = "udp or tcp";							/* filter expression */
 	struct bpf_program fp;										/* compiled filter program (expression) */
 	bpf_u_int32 mask;											/* subnet mask */
 	bpf_u_int32 net;											/* ip */
