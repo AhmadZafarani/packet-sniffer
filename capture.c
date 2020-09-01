@@ -487,8 +487,13 @@ void session_hijacking(u_char *args, const struct pcap_pkthdr *header, const u_c
 }
 
 
+#define ip_period 	60
 void ip_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *packet)	{
 	static int count = 1;
+
+	static int tcp_count = 0;
+	static int udp_count = 0;
+	static int new_count = 0;
 
 	/* declare pointers to packet headers */
 	const struct sniff_ethernet *ethernet;  	/* The ethernet header */
@@ -532,6 +537,7 @@ void ip_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *pac
 		// syslog(LOG_INFO, \tSrc port: %d\n", ntohs(tcp->th_sport));
 		printf("\tDst port: %d\n", ntohs(tcp->th_dport));
 		// syslog(LOG_INFO, "\tDst port: %d\n", ntohs(tcp->th_dport));
+		tcp_count++;
 
 	}	else if (ip->ip_p == IPPROTO_UDP)	{
 		printf("\tProtocol: UDP\n");
@@ -547,11 +553,25 @@ void ip_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *pac
 		// syslog(LOG_INFO, "\tSrc port: %d\n", ntohs(udp->th_sport));
 		printf("\tDst port: %d\n", ntohs(udp->th_dport));
 		// syslog(LOG_INFO, "\tDst port: %d\n", ntohs(udp->th_dport));
+		udp_count++;
 
 	}	else	{
 		printf("new protocol: %d\n", ip->ip_p);
 		// syslog(LOG_WARNING, "new protocol: %d\n", ip->ip_p);
-		return;
+		new_count++;
+	}
+
+	/* periodical report */
+	time_t now = time(NULL);
+	if (now - start > ip_period) {
+		start = now;
+		printf("\n** there were %d UDP Packets and %d TCP Packets and %d NEW Packets in last %d seconds. **\n", udp_count,
+		 		tcp_count, new_count, ip_period);
+		// syslog(LOG_DEBUG, "there were %d UDP Packets and %d TCP Packets and %d NEW Packets in last %d seconds.", udp_count, 
+				// tcp_count, new_count, ip_period);
+		tcp_count = 0;
+		udp_count = 0;
+		new_count = 0;
 	}
 }
 
@@ -650,8 +670,8 @@ int main(int argc, char **argv) {
 	/* now we can set our callback function */
 	// pcap_loop(handle, -1, http_packet, NULL);
 	// pcap_loop(handle, -1, dns_packet, NULL);
-	// openlog("packet sniffer: ", 0, LOG_LOCAL0);
-	// start = time(NULL);
+	openlog("packet sniffer: ", 0, LOG_LOCAL0);
+	start = time(NULL);
 	// pcap_loop(handle, -1, session_hijacking, NULL);
 
 	pcap_loop(handle, -1, ip_packet, NULL);

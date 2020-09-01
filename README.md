@@ -15,3 +15,5 @@
 you can use the custom client-server program (written in python 3) to test the C program.
 
 ### update: now capturing DNS packets too.
+### update: now hijacking sessions.
+### update: now reports all ip packets data.
