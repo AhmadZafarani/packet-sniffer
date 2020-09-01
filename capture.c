@@ -504,6 +504,8 @@ int main(int argc, char **argv) {
 	struct bpf_program fp;										/* compiled filter program (expression) */
 	bpf_u_int32 mask;											/* subnet mask */
 	bpf_u_int32 net;											/* ip */
+	struct in_addr net_addr;									/* IPV4 representation for ip(net) */
+	struct in_addr mask_addr;									/* IPV4 representation for mask */
 
 	pcap_if_t *alldevsp , *device;
 	char devs[50][50];
@@ -521,8 +523,7 @@ int main(int argc, char **argv) {
 	printf("\nAvailable Devices are :\n");
 	for(device = alldevsp ; device != NULL ; device = device->next)	{
 		printf("%d. %s - %s\n" , count , device->name , device->description);
-		if(device->name != NULL)
-		{
+		if(device->name != NULL) {
 			strcpy(devs[count] , device->name);
 		}
 		count++;
@@ -539,6 +540,22 @@ int main(int argc, char **argv) {
 		net = 0;
 		mask = 0;
 	}
+
+	/* print IP, IP class and mask of selected device */
+  	net_addr.s_addr = net;
+	mask_addr.s_addr = mask;
+	char class;
+	switch (mask) {
+	case 16777215:
+		class = 'C';
+		break;
+	case 65535:
+		class = 'B';
+	default:
+		class = 'A';
+	}
+  	printf("IP Address: %s\nIP class: %c\n", inet_ntoa(net_addr), class);
+  	printf("Mask: %s\n", inet_ntoa(mask_addr));
 
 	/* open capture device */
 	handle = pcap_open_live(dev, SNAP_LEN, 1, 0, errbuf);
