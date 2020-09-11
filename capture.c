@@ -88,66 +88,10 @@ struct sniff_dns {
 };
 
 
-void http_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *packet)	{
-	static int count = 1;                   /* packet counter */
-
-	/* declare pointers to packet headers */
-	const struct sniff_ethernet *ethernet;  /* The ethernet header */
-	const struct sniff_ip *ip;              /* The IP header */
-	const struct sniff_tcp *tcp;            /* The TCP header */
-	const char *payload;                    /* Packet payload */
-	char log [10000];
-	char temp [500];
-
-	int size_ip;
-	int size_tcp;
+char *http_packet(const u_char *packet, int size_ip, int size_tcp, struct sniff_ip *ip, char *log)	{
+	const char *payload;
 	int size_payload;
-
-	sprintf(temp, "\nPacket number %d:\n", count);
-	strcat(log, temp);
-	count++;
-
-	/* define ethernet header */
-	ethernet = (struct sniff_ethernet*) (packet);
-
-	/* define/compute ip header offset */
-	ip = (struct sniff_ip*) (packet + SIZE_ETHERNET);
-	size_ip = IP_HL(ip) * 4;
-	if (size_ip < 20) {
-		sprintf(temp, "   * Invalid IP header length: %u bytes\n", size_ip);
-		strcat(log, temp);
-		return;
-	}
-
-	/* print source and destination IP addresses */
-	sprintf(temp, "       From: %s\n", inet_ntoa(ip->ip_src));
-	strcat(log, temp);
-	sprintf(temp, "         To: %s\n", inet_ntoa(ip->ip_dst));
-	strcat(log, temp);
-
-	/* determine protocol */
-	if (ip->ip_p == IPPROTO_TCP)	{
-		sprintf(temp, "   Protocol: TCP\n");
-		strcat(log, temp);
-	} else	{
-		sprintf(temp, "   Protocol: not TCP\n");
-		strcat(log, temp);
-		return;
-	}
-
-	/* define/compute tcp header offset */
-	tcp = (struct sniff_tcp*) (packet + SIZE_ETHERNET + size_ip);
-	size_tcp = TH_OFF(tcp) * 4;
-	if (size_tcp < 20) {
-		sprintf(temp, "   * Invalid TCP header length: %u bytes\n", size_tcp);
-		strcat(log, temp);
-		return;
-	}
-
-	sprintf(temp, "   Src port: %d\n", ntohs(tcp->th_sport));
-	strcat(log, temp);
-	sprintf(temp, "   Dst port: %d\n", ntohs(tcp->th_dport));
-	strcat(log, temp);
+	char temp [50];
 
 	/* define/compute tcp payload (segment) offset */
 	payload = (u_char *) (packet + SIZE_ETHERNET + size_ip + size_tcp);
@@ -174,16 +118,13 @@ void http_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *p
 		sprintf(temp, "\n");
 		strcat(log, temp);
 	} else	{
-		memset(log, '\0', strlen(log));
-		count--;
-		return;
+		return NULL;
 	}
 
 	if(strstr(log, "HTTP") != NULL) {
-		printf("%s", log);
+		return log;
 	}	else	{
-		memset(log, '\0', strlen(log));
-		count--;
+		return NULL;
 	}
 }
 
@@ -200,61 +141,18 @@ char *trimDOT(char *str) {
 }
 
 
-void dns_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *packet)	{
-	static int count = 1;                   /* packet counter */
-
-	/* declare pointers to packet headers */
-	const struct sniff_ethernet *ethernet;  /* The ethernet header */
-	const struct sniff_ip *ip;              /* The IP header */
-	const struct sniff_udp *udp;            /* The UDP header */
+char *dns_packet(const u_char *packet, int size_ip, struct sniff_udp *udp, char *log)	{
 	const struct sniff_dns *dns;			/* DNS */
 	const char *query;						/* QUERY part of DNS packet */
 
-	int size_ip;
-	int size_udp;
 	int size_query;
-
-	printf("\nPacket number %d:\n", count);
-	count++;
-
-	/* define ethernet header */
-	ethernet = (struct sniff_ethernet*) (packet);
-
-	/* define/compute ip header offset */
-	ip = (struct sniff_ip*) (packet + SIZE_ETHERNET);
-	size_ip = IP_HL(ip) * 4;
-	if (size_ip < 20) {
-		printf("   * Invalid IP header length: %u bytes\n", size_ip);
-		return;
-	}
-
-	/* print source and destination IP addresses */
-	printf("\tFrom: %s\n", inet_ntoa(ip->ip_src));
-	printf("\tTo: %s\n", inet_ntoa(ip->ip_dst));
-
-	/* determine protocol */
-	if (ip->ip_p == IPPROTO_UDP) {
-		printf("\tProtocol: UDP\n");
-	}	else	{
-		printf("\tProtocol: not UDP\n");
-		return;
-	}
-
-	/* define/compute tcp header offset */
-	udp = (struct sniff_udp*) (packet + SIZE_ETHERNET + size_ip);
-	size_udp = udp->th_len;
-	if (size_udp < 8) {
-		printf("   * Invalid UDP header length: %u bytes\n", size_udp);
-		return;
-	}
-
-	printf("\tSrc port: %d\n", ntohs(udp->th_sport));
-	printf("\tDst port: %d\n", ntohs(udp->th_dport));
+	char temp[150];
 
 	/* treat UDP payload like DNS packet - print packet ID */
 	dns = (struct sniff_dns*) (packet + SIZE_ETHERNET + size_ip + 8);
 	unsigned short flags = ntohs(dns->flags);
-	printf("\tID: 0x%x\n", ntohs(dns->th_id));
+	sprintf(temp, "\tID: 0x%x\n", ntohs(dns->th_id));
+	strcat(log, temp);
 
 	/* print info got from packet FLAGS */
     char info [100] = {'\0'};
@@ -269,13 +167,15 @@ void dns_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *pa
 	if (flags & 0x0002) {
 		strcat(info, "server failure.");
 	}
-	printf("\tInfo: %s\n", info);
+	sprintf(temp, "\tInfo: %s\n", info);
+	strcat(log, temp);
 
 	/* print DNS query */
 	query = (u_char *) (packet + SIZE_ETHERNET + size_ip + 8 + 12);
 	size_query = ntohs(udp->th_len) - 20;
 	if (size_query > 0) {
-		printf("\tQuery (%d bytes):\n", size_query);
+		sprintf(temp, "\tQuery (%d bytes):\n", size_query);
+		strcat(log, temp);
 
 		/* determine query data */
 		char name [100] = {'\0'};
@@ -289,17 +189,22 @@ void dns_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *pa
 			}
 			ch++;
 		}
-		printf("\t\tName: %s", trimDOT(name));
+		sprintf(temp, "\t\tName: %s", trimDOT(name));
+		strcat(log, temp);
 
 		/* determine type */
 		unsigned short *t = (unsigned short *) (packet + SIZE_ETHERNET + size_ip + 8 + 12 + size_query - 4);
 		unsigned short type = ntohs(*t);
 		if (type == 1) {
-			printf("\n\t\ttype:  A\n");
+			sprintf(temp, "\n\t\ttype:  A\n");
+			strcat(log, temp);
+			
 		} else if (type == 28) {
-			printf("\n\t\ttype:  AAAA\n");
+			sprintf(temp, "\n\t\ttype:  AAAA\n");
+			strcat(log, temp);
 		}
 	}
+	return log;
 }
 
 
@@ -489,7 +394,7 @@ void session_hijacking(u_char *args, const struct pcap_pkthdr *header, const u_c
 
 #define ip_period 	60
 void ip_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *packet)	{
-	static int count = 1;
+	static int count = 1;						/* packet counter */
 
 	static int tcp_count = 0;
 	static int udp_count = 0;
@@ -498,10 +403,13 @@ void ip_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *pac
 	/* declare pointers to packet headers */
 	const struct sniff_ethernet *ethernet;  	/* The ethernet header */
 	struct sniff_ip *ip;             		 	/* The IP header */
-	int size_ip;
 
-	printf("\nPacket number %d:\n", count);
-	// syslog(LOG_INFO, "\nPacket number %d:\n", count);
+	int size_ip;
+	char log [10000];							/* log message which would generated for this packet */
+	char temp [500];
+
+	sprintf(temp, "\nPacket number %d:\n", count);
+	strcat(log, temp);
 	count++;
 
 	/* define ethernet header */
@@ -512,54 +420,79 @@ void ip_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *pac
 	size_ip = IP_HL(ip) * 4;
 	if (size_ip < 20) {
 		printf("\t* Invalid IP header length: %u bytes\n", size_ip);
-    	// syslog(LOG_ERR, "\t* Invalid IP header length: %u bytes\n", size_ip);
+    	syslog(LOG_ERR, "\t* Invalid IP header length: %u bytes\n", size_ip);
 		return;
 	}
 
 	/* print source and destination IP addresses */
-	printf("\tFrom: %s\n", inet_ntoa(ip->ip_src));
-	// syslog(LOG_INFO, "\tFrom: %s\n", inet_ntoa(ip->ip_src));
-	printf("\tTo: %s\n", inet_ntoa(ip->ip_dst));
-	// syslog(LOG_INFO, "\tTo: %s\n", inet_ntoa(ip->ip_dst));
+	sprintf(temp, "\tFrom: %s\n", inet_ntoa(ip->ip_src));
+	strcat(log, temp);
+	sprintf(temp, "\tTo: %s\n", inet_ntoa(ip->ip_dst));
+	strcat(log, temp);
 
-	/* determine protocol */
+	/* determine protocol, detect source and destination ports */
 	if (ip->ip_p == IPPROTO_TCP) {
-		printf("\tProtocol: TCP\n");
-		// syslog(LOG_INFO, "\tProtocol: TCP\n");
+		sprintf(temp, "\tProtocol: TCP\n");
+		strcat(log, temp);
 		struct sniff_tcp *tcp = (struct sniff_tcp*) (packet + SIZE_ETHERNET + size_ip);
 		int size_tcp = TH_OFF(tcp) * 4;
 		if (size_tcp < 20) {
 			printf("\t* Invalid TCP header length: %u bytes\n", size_tcp);
-    		// syslog(LOG_ERR, "\t* Invalid TCP header length: %u bytes\n", size_tcp);
+    		syslog(LOG_ERR, "\t* Invalid TCP header length: %u bytes\n", size_tcp);
 			return;
 		}
-		printf("\tSrc port: %d\n", ntohs(tcp->th_sport));
-		// syslog(LOG_INFO, \tSrc port: %d\n", ntohs(tcp->th_sport));
-		printf("\tDst port: %d\n", ntohs(tcp->th_dport));
-		// syslog(LOG_INFO, "\tDst port: %d\n", ntohs(tcp->th_dport));
+		sprintf(temp, "\tSrc port: %d\n", ntohs(tcp->th_sport));
+		strcat(log, temp);
+		sprintf(temp, "\tDst port: %d\n", ntohs(tcp->th_dport));
+		strcat(log, temp);
 		tcp_count++;
 
+		/* check whether TCP packet is http or not, add http payload to "log" */
+		char payload[1000];
+		char *http = http_packet(packet, size_ip, size_tcp, ip, payload);
+		if (http != NULL)	{
+			strcat(log, http);
+		}
+		memset(payload, '\0', strlen(payload));
+
+
 	}	else if (ip->ip_p == IPPROTO_UDP)	{
-		printf("\tProtocol: UDP\n");
-		// syslog(LOG_INFO, "\tProtocol: TCP\n");
+		sprintf(temp, "\tProtocol: UDP\n");
+		strcat(log, temp);
 		struct sniff_udp *udp = (struct sniff_udp*) (packet + SIZE_ETHERNET + size_ip);
 		int size_udp = udp->th_len;
 		if (size_udp < 8) {
 			printf("\t* Invalid UDP header length: %u bytes\n", size_udp);
-			// syslog(LOG_ERR, "\t* Invalid TCP header length: %u bytes\n", size_udp);
+			syslog(LOG_ERR, "\t* Invalid TCP header length: %u bytes\n", size_udp);
 			return;
 		}
-		printf("\tSrc port: %d\n", ntohs(udp->th_sport));
-		// syslog(LOG_INFO, "\tSrc port: %d\n", ntohs(udp->th_sport));
-		printf("\tDst port: %d\n", ntohs(udp->th_dport));
-		// syslog(LOG_INFO, "\tDst port: %d\n", ntohs(udp->th_dport));
+		int s_port = ntohs(udp->th_sport);
+		int d_port = ntohs(udp->th_dport);
+		sprintf(temp, "\tSrc port: %d\n", s_port);
+		strcat(log, temp);
+		sprintf(temp, "\tDst port: %d\n", d_port);
+		strcat(log, temp);
 		udp_count++;
 
+		/* check whether UDP packet is DNS or not, add DNS payload to "log" */
+		if (s_port == 53 || d_port == 53) {
+			char payload[1000];
+			char *dns = dns_packet(packet, size_ip, udp, payload);
+			strcat(log, dns);
+			memset(payload, '\0', strlen(payload));
+		}
+
+
 	}	else	{
-		printf("new protocol: %d\n", ip->ip_p);
-		// syslog(LOG_WARNING, "new protocol: %d\n", ip->ip_p);
+		sprintf(temp, "new protocol: %d\n", ip->ip_p);
+		strcat(log, temp);
+		syslog(LOG_WARNING, "new protocol: %d\n", ip->ip_p);
 		new_count++;
 	}
+
+	printf("%s", log);
+	// syslog(LOG_INFO, "%s", log);
+	memset(log, '\0', strlen(log));
 
 	/* periodical report */
 	time_t now = time(NULL);
@@ -568,7 +501,7 @@ void ip_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *pac
 		printf("\n** there were %d UDP Packets and %d TCP Packets and %d NEW Packets in last %d seconds. **\n", udp_count,
 		 		tcp_count, new_count, ip_period);
 		// syslog(LOG_DEBUG, "there were %d UDP Packets and %d TCP Packets and %d NEW Packets in last %d seconds.", udp_count, 
-				// tcp_count, new_count, ip_period);
+		// 		tcp_count, new_count, ip_period);
 		tcp_count = 0;
 		udp_count = 0;
 		new_count = 0;
@@ -581,9 +514,6 @@ int main(int argc, char **argv) {
 	char errbuf[PCAP_ERRBUF_SIZE];								/* error buffer */
 	pcap_t *handle;												/* packet capture handle */
 
-	// char filter_exp[] = "host 127.2.3.4 and port 8000";		/* filter expression */
-	// char filter_exp[] = "udp port 53";						/* filter expression */
-	// char filter_exp[] = "udp or tcp";						/* filter expression */
 	char filter_exp[] = "ip";									/* filter expression */
 	struct bpf_program fp;										/* compiled filter program (expression) */
 	bpf_u_int32 mask;											/* subnet mask */
@@ -668,11 +598,8 @@ int main(int argc, char **argv) {
 	printf("Filter set successfully\n");
 
 	/* now we can set our callback function */
-	// pcap_loop(handle, -1, http_packet, NULL);
-	// pcap_loop(handle, -1, dns_packet, NULL);
 	openlog("packet sniffer: ", 0, LOG_LOCAL0);
 	start = time(NULL);
-	// pcap_loop(handle, -1, session_hijacking, NULL);
 
 	pcap_loop(handle, -1, ip_packet, NULL);
 
