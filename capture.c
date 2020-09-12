@@ -239,9 +239,9 @@ int same_session_port(int curr_s, int curr_d, int pkt_s, int pkt_d) {
 }
 
 
-#define period	30
-time_t start;
-void session_hijacking(u_char *args, const struct pcap_pkthdr *header, const u_char *packet)	{
+#define sess_period	30
+time_t sess_timer;
+void session_hijacking(const u_char *packet, struct sniff_ip *ip, int size_ip, struct sniff_tcp *tcp, struct sniff_udp *udp)	{
 	static int pkt_count = 1;                   /* current session packet counter */
 	static int sess_count = 1;					/* session counter */
 
@@ -252,37 +252,15 @@ void session_hijacking(u_char *args, const struct pcap_pkthdr *header, const u_c
 	static struct sniff_tcp *curr_tcp = NULL;	/* current session protocol */
 	static struct sniff_udp *curr_udp = NULL;
 
-	/* declare pointers to packet headers */
-	const struct sniff_ethernet *ethernet;  	/* The ethernet header */
-	struct sniff_ip *ip;             		 	/* The IP header */
-	int size_ip;
-
-	/* define ethernet header */
-	ethernet = (struct sniff_ethernet*) (packet);
-
-	/* define/compute ip header offset */
-	ip = (struct sniff_ip*) (packet + SIZE_ETHERNET);
-	size_ip = IP_HL(ip) * 4;
-	if (size_ip < 20) {
-		printf("\t* Invalid IP header length: %u bytes\n", size_ip);
-    	// syslog(LOG_ERR, "\t* Invalid IP header length: %u bytes\n", size_ip);
-		return;
-	}
-
 	/* first packet */
 	if (curr_ip == NULL)
 		curr_ip = ip;
 
+	char log[10000] = {'\0'};
+	char temp[100];
+
 	/* determine protocol */
 	if (ip->ip_p == IPPROTO_TCP) {
-		struct sniff_tcp *tcp = (struct sniff_tcp*) (packet + SIZE_ETHERNET + size_ip);
-		int size_tcp = TH_OFF(tcp) * 4;
-		if (size_tcp < 20) {
-			printf("\t* Invalid TCP header length: %u bytes\n", size_tcp);
-    		// syslog(LOG_ERR, "\t* Invalid TCP header length: %u bytes\n", size_tcp);
-			return;
-		}
-
 		/* first packet */
 		if (curr_tcp == NULL && curr_udp == NULL) {
 			curr_tcp = tcp;
@@ -297,39 +275,31 @@ void session_hijacking(u_char *args, const struct pcap_pkthdr *header, const u_c
 		}
 
 		/* first packet of new session recieved */
-		printf("\nSession number %d:\n", sess_count);
-		printf("\tthere are %d packets in this Session\n", pkt_count);
-    	// syslog(LOG_DEBUG, "\nSession number %d:\n", sess_count);
-		// syslog(LOG_DEBUG, "\tthere are %d packets in this Session\n", pkt_count);
+		sprintf(temp, "\nSession number %d:\n", sess_count);
+		strcat(log, temp);
+		sprintf(temp, "\tthere are %d packets in this Session\n", pkt_count);
+		strcat(log, temp);
 		if (curr_ip->ip_p == IPPROTO_TCP) {
-			printf("\tprotocol: TCP\n\tdata communication was between these sockets:\n");
-			printf("\t\tip: %s\tport: %d\n", inet_ntoa(curr_ip->ip_src), ntohs(curr_tcp->th_sport));
-			printf("\t\tip: %s\tport: %d\n", inet_ntoa(curr_ip->ip_dst), ntohs(curr_tcp->th_dport));
-			// syslog(LOG_DEBUG, "\tprotocol: TCP\n\tdata communication was between these sockets:\n");
-			// syslog(LOG_DEBUG, "\t\tip: %s\tport: %d\n", inet_ntoa(curr_ip->ip_src), ntohs(curr_tcp->th_sport));
-			// syslog(LOG_DEBUG, "\t\tip: %s\tport: %d\n", inet_ntoa(curr_ip->ip_dst), ntohs(curr_tcp->th_dport));
+			sprintf(temp, "\tprotocol: TCP\n\tdata communication was between these sockets:\n");
+			strcat(log, temp);
+			sprintf(temp, "\t\tip: %s\tport: %d\n", inet_ntoa(curr_ip->ip_src), ntohs(curr_tcp->th_sport));
+			strcat(log, temp);
+			sprintf(temp, "\t\tip: %s\tport: %d\n", inet_ntoa(curr_ip->ip_dst), ntohs(curr_tcp->th_dport));
+			strcat(log, temp);
 			tcp_sess_per++;
 		}	else	{
-			printf("\tprotocol: UDP\n\tdata communication was between these sockets:\n");
-			printf("\t\tip: %s\tport: %d\n", inet_ntoa(curr_ip->ip_src), ntohs(curr_udp->th_sport));
-			printf("\t\tip: %s\tport: %d\n", inet_ntoa(curr_ip->ip_dst), ntohs(curr_udp->th_dport));
-			// syslog(LOG_DEBUG, "\tprotocol: UDP\n\tdata communication was between these sockets:\n");
-			// syslog(LOG_DEBUG, "\t\tip: %s\tport: %d\n", inet_ntoa(curr_ip->ip_src), ntohs(curr_udp->th_sport));
-			// syslog(LOG_DEBUG, "\t\tip: %s\tport: %d\n", inet_ntoa(curr_ip->ip_dst), ntohs(curr_udp->th_dport));
+			sprintf(temp, "\tprotocol: UDP\n\tdata communication was between these sockets:\n");
+			strcat(log, temp);
+			sprintf(temp, "\t\tip: %s\tport: %d\n", inet_ntoa(curr_ip->ip_src), ntohs(curr_udp->th_sport));
+			strcat(log, temp);
+			sprintf(temp, "\t\tip: %s\tport: %d\n", inet_ntoa(curr_ip->ip_dst), ntohs(curr_udp->th_dport));
+			strcat(log, temp);
 			udp_sess_per++;
 		}
 		curr_tcp = tcp;
 		curr_udp = NULL;
 
 	}	else if (ip->ip_p == IPPROTO_UDP)	{
-		struct sniff_udp *udp = (struct sniff_udp*) (packet + SIZE_ETHERNET + size_ip);
-		int size_udp = udp->th_len;
-		if (size_udp < 8) {
-			printf("\t* Invalid UDP header length: %u bytes\n", size_udp);
-			// syslog(LOG_INFO, "\tProtocol: TCP\n");
-			return;
-		}
-
 		/* first packet */
 		if (curr_tcp == NULL && curr_udp == NULL) {
 			curr_udp = udp;
@@ -344,35 +314,39 @@ void session_hijacking(u_char *args, const struct pcap_pkthdr *header, const u_c
 		}
 
 		/* first packet of new session recieved */
-		printf("\nSession number %d:\n", sess_count);
-		printf("\tthere are %d packets in this Session\n", pkt_count);
-		// syslog(LOG_DEBUG, "\nSession number %d:\n", sess_count);
-		// syslog(LOG_DEBUG, "\tthere are %d packets in this Session\n", pkt_count);
+		sprintf(temp, "\nSession number %d:\n", sess_count);
+		strcat(log, temp);
+		sprintf(temp, "\tthere are %d packets in this Session\n", pkt_count);
+		strcat(log, temp);
 		if (curr_ip->ip_p == IPPROTO_TCP) {
-			printf("\tprotocol: TCP\n\tdata communication was between these sockets:\n");
-			printf("\t\tip: %s\tport: %d\n", inet_ntoa(curr_ip->ip_src), ntohs(curr_tcp->th_sport));
-			printf("\t\tip: %s\tport: %d\n", inet_ntoa(curr_ip->ip_dst), ntohs(curr_tcp->th_dport));
-			// syslog(LOG_DEBUG, "\tprotocol: TCP\n\tdata communication was between these sockets:\n");
-			// syslog(LOG_DEBUG, "\t\tip: %s\tport: %d\n", inet_ntoa(curr_ip->ip_src), ntohs(curr_tcp->th_sport));
-			// syslog(LOG_DEBUG, "\t\tip: %s\tport: %d\n", inet_ntoa(curr_ip->ip_dst), ntohs(curr_tcp->th_dport));
+			sprintf(temp, "\tprotocol: TCP\n\tdata communication was between these sockets:\n");
+			strcat(log, temp);
+			sprintf(temp, "\t\tip: %s\tport: %d\n", inet_ntoa(curr_ip->ip_src), ntohs(curr_tcp->th_sport));
+			strcat(log, temp);
+			sprintf(temp, "\t\tip: %s\tport: %d\n", inet_ntoa(curr_ip->ip_dst), ntohs(curr_tcp->th_dport));
+			strcat(log, temp);
 			tcp_sess_per++;
 		}	else	{
-			printf("\tprotocol: UDP\n\tdata communication was between these sockets:\n");
-			printf("\t\tip: %s\tport: %d\n", inet_ntoa(curr_ip->ip_src), ntohs(curr_udp->th_sport));
-			printf("\t\tip: %s\tport: %d\n", inet_ntoa(curr_ip->ip_dst), ntohs(curr_udp->th_dport));
-			// syslog(LOG_DEBUG, "\tprotocol: UDP\n\tdata communication was between these sockets:\n");
-			// syslog(LOG_DEBUG, "\t\tip: %s\tport: %d\n", inet_ntoa(curr_ip->ip_src), ntohs(curr_udp->th_sport));
-			// syslog(LOG_DEBUG, "\t\tip: %s\tport: %d\n", inet_ntoa(curr_ip->ip_dst), ntohs(curr_udp->th_dport));
+			sprintf(temp, "\tprotocol: UDP\n\tdata communication was between these sockets:\n");
+			strcat(log, temp);
+			sprintf(temp, "\t\tip: %s\tport: %d\n", inet_ntoa(curr_ip->ip_src), ntohs(curr_udp->th_sport));
+			strcat(log, temp);
+			sprintf(temp, "\t\tip: %s\tport: %d\n", inet_ntoa(curr_ip->ip_dst), ntohs(curr_udp->th_dport));
+			strcat(log, temp);
 			udp_sess_per++;
 		}
 		curr_udp = udp;
 		curr_tcp = NULL;
 
 	}	else	{
-		printf("new protocol: %d\n", ip->ip_p);
-		// syslog(LOG_WARNING, "new protocol: %d\n", ip->ip_p);
+		sprintf(temp, "new protocol: %d\n", ip->ip_p);
+		strcat(log, temp);
+		syslog(LOG_WARNING, "new protocol: %d\n", ip->ip_p);
 		return;
 	}
+
+	printf("%s", log);
+	syslog(LOG_DEBUG, "%s", log);
 
 	/* first packet of new session recieved */
 	pkt_count = 1;
@@ -381,11 +355,12 @@ void session_hijacking(u_char *args, const struct pcap_pkthdr *header, const u_c
 
 	/* periodical report */
 	time_t now = time(NULL);
-	if (now - start > period) {
-		start = now;
-		printf("\n** there were %d UDP Sessions and %d TCP Sessions in last %d seconds. **\n", udp_sess_per, tcp_sess_per, period);
-		// syslog(LOG_INFO, "\n** there were %d UDP Sessions and %d TCP Sessions in last %d seconds. **\n", udp_sess_per, 
-				// tcp_sess_per, period);
+	if (now - sess_timer > sess_period) {
+		sess_timer = now;
+		printf("\n** there were %d UDP Sessions and %d TCP Sessions in last %d seconds. **\n", udp_sess_per, tcp_sess_per, 
+				sess_period);
+		syslog(LOG_INFO, " there were %d UDP Sessions and %d TCP Sessions in last %d seconds. ", udp_sess_per, tcp_sess_per,
+				 sess_period);
 		tcp_sess_per = 0;
 		udp_sess_per = 0;
 	}
@@ -393,6 +368,7 @@ void session_hijacking(u_char *args, const struct pcap_pkthdr *header, const u_c
 
 
 #define ip_period 	60
+time_t ip_timer;
 void ip_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *packet)	{
 	static int count = 1;						/* packet counter */
 
@@ -447,6 +423,8 @@ void ip_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *pac
 		strcat(log, temp);
 		tcp_count++;
 
+		session_hijacking(packet, ip, size_ip, tcp, NULL);
+
 		/* check whether TCP packet is http or not, add http payload to "log" */
 		char payload[1000];
 		char *http = http_packet(packet, size_ip, size_tcp, ip, payload);
@@ -474,6 +452,8 @@ void ip_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *pac
 		strcat(log, temp);
 		udp_count++;
 
+		session_hijacking(packet, ip, size_ip, NULL, udp);
+
 		/* check whether UDP packet is DNS or not, add DNS payload to "log" */
 		if (s_port == 53 || d_port == 53) {
 			char payload[1000];
@@ -491,17 +471,17 @@ void ip_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *pac
 	}
 
 	printf("%s", log);
-	// syslog(LOG_INFO, "%s", log);
+	syslog(LOG_INFO, "%s", log);
 	memset(log, '\0', strlen(log));
 
 	/* periodical report */
 	time_t now = time(NULL);
-	if (now - start > ip_period) {
-		start = now;
+	if (now - ip_timer > ip_period) {
+		ip_timer = now;
 		printf("\n** there were %d UDP Packets and %d TCP Packets and %d NEW Packets in last %d seconds. **\n", udp_count,
 		 		tcp_count, new_count, ip_period);
-		// syslog(LOG_DEBUG, "there were %d UDP Packets and %d TCP Packets and %d NEW Packets in last %d seconds.", udp_count, 
-		// 		tcp_count, new_count, ip_period);
+		syslog(LOG_DEBUG, "there were %d UDP Packets and %d TCP Packets and %d NEW Packets in last %d seconds.", udp_count, 
+				tcp_count, new_count, ip_period);
 		tcp_count = 0;
 		udp_count = 0;
 		new_count = 0;
@@ -599,7 +579,8 @@ int main(int argc, char **argv) {
 
 	/* now we can set our callback function */
 	openlog("packet sniffer: ", 0, LOG_LOCAL0);
-	start = time(NULL);
+	sess_timer = time(NULL);
+	ip_timer = time(NULL);
 
 	pcap_loop(handle, -1, ip_packet, NULL);
 
