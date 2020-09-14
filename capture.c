@@ -208,104 +208,115 @@ char *dns_packet(const u_char *packet, int size_ip, struct sniff_udp *udp, char 
 }
 
 
+int same_session_port(int curr_s, int curr_d, int pkt_s, int pkt_d) {
+	return (curr_s == pkt_s && curr_d == pkt_d) || (curr_s == pkt_d && curr_d == pkt_s);
+}
+
+
 #define sess_period	30
 time_t sess_timer;
-struct Session {
-	int protocol;
-	char *s_ip;
-	char *d_ip;
-	int s_port;
-	int d_port;
-	int packet_count;
-};
-/* nodes of linked list used for storing SESSIONs */
+// struct Session {
+// 		u_char protocol;
+// 		struct  in_addr ip_src,ip_dst;
+// 		u_short th_sport;
+// 		u_short th_dport;
+// 		unsigned int packet_count;               
+// };
+
 struct Node {
-    struct Session sess;
-    struct Node *next;
-	struct Node *previous;
+		struct Node *next;
+		u_char protocol;
+		struct  in_addr ip_src,ip_dst;
+		u_short th_sport;
+		u_short th_dport;
+		unsigned int packet_count;      
+		struct Node *previous;
 };
 
 
-struct Node* head = NULL;						/* head of linked list */
-struct Node* current;							/* current node of linked list */
-
-int same_session(int protocol, char *src_ip, char *dest_ip, int src_p, int dest_p)	{
-	if (current->sess.protocol != protocol) {
+int same_session_ip(const struct Node *sess, const struct sniff_ip *pkt)	{
+	if (sess->protocol != pkt->ip_p) {
 		return 0;
 	}
 	int flag1 = 1, flag2 = 1;
-	while (strcmp(current->sess.s_ip, src_ip) != 0)
+	const char* pkt_s = inet_ntoa(pkt->ip_src);
+	const char* pkt_d = inet_ntoa(pkt->ip_dst);
+	const char* curr_s = inet_ntoa(sess->ip_src);
+	const char* curr_d = inet_ntoa(sess->ip_dst);
+
+	while (strcmp(pkt_s, curr_s) != 0)
 		flag1 = 0;
-	while (strcmp(current->sess.d_ip, dest_ip) != 0)
+	while (strcmp(pkt_d, curr_d) != 0)
 		flag2 = 0;
-	int result = flag1 && flag2 && current->sess.s_port == src_p && current->sess.d_port == dest_p;
-	if (result) {
+	if (flag1 && flag2) {
 		return 1;
 	}
-
 	flag1 = 1, flag2 = 1;
-	while (strcmp(current->sess.s_ip, dest_ip) != 0)
+	while (strcmp(pkt_s, curr_d) != 0)
 		flag1 = 0;
-	while (strcmp(current->sess.d_ip, src_ip) != 0)
+	while (strcmp(pkt_d, curr_s) != 0)
 		flag2 = 0;
-	return flag1 && flag2 && current->sess.s_port == dest_p && current->sess.d_port == src_p;;
+	return flag1 && flag2;
 }
 
 
-void session_hijacking(int protocol, char *src_ip, char *dest_ip, int src_p, int dest_p)	{
-	static int sess_count = 1;					/* session counter */
+void session_hijacking(struct sniff_ip *ip, int size_ip, struct sniff_tcp *tcp, struct sniff_udp *udp)	{
+	static struct Node *head = NULL;
+	static struct Node *current = NULL;
 
-	static int udp_sess_per = 0;				/* number of udp sessions in this period */
-	static int tcp_sess_per = 0;				/* number of tcp sessions in this period */
-
-	/* first packet */
 	if (head == NULL) {
-    	head = (struct Node*) malloc( sizeof(struct Node) );
-		current = head;
+		head = (struct Node *) malloc(sizeof(struct Node));
+		head->protocol = ip->ip_p;
+		head->protocol = ip->ip_p;
+		head->ip_src = ip->ip_src;
+		head->ip_dst = ip->ip_dst;
+		if (ip->ip_p == IPPROTO_TCP) {
+			head->th_sport = tcp->th_sport;
+			head->th_dport = tcp->th_dport;
+		} else if (ip->ip_p == IPPROTO_UDP) {
+			head->th_sport = udp->th_sport;
+			head->th_dport = udp->th_dport;
+		}
+		head->packet_count = 1;
+		head->next = NULL;
 		head->previous = NULL;
-		head->sess.protocol = protocol;
-		head->sess.s_ip = src_ip;
-		head->sess.d_ip = dest_ip;
-		head->sess.s_port = src_p;
-		head->sess.d_port = dest_p;
-		head->sess.packet_count = 1;
+		current = head;
 		return;
 	}
-
-	// char log[10000] = {'\0'};
-	// char temp[100];
-
-	/* check if current packet is in same session with CURRENT */
-	if (same_session(protocol, src_ip, dest_ip, src_p, dest_p)) {
-		current->sess.packet_count++;
-		return;
+	struct Node *node = current;
+	while (node != NULL) {
+		if (ip->ip_p == IPPROTO_TCP) {
+			if (same_session_ip(node, ip) &&
+				same_session_port(ntohs(node->th_sport), ntohs(node->th_dport), ntohs(tcp->th_sport), ntohs(tcp->th_dport))) {
+				node->packet_count++;
+				return;
+			}
+		} else if (ip->ip_p == IPPROTO_UDP) {
+			if (same_session_ip(node, ip) &&
+				same_session_port(ntohs(node->th_sport), ntohs(node->th_dport), ntohs(udp->th_sport), ntohs(udp->th_dport))) {
+				node->packet_count++;
+				return;
+			}
+		}
+		printf("\n^^  %d\t%d  ^^\n", node->protocol, node->packet_count);
+		node = node->previous;
 	}
-
-	/* first packet of new session recieved */
-
+	current->next = (struct Node *) malloc(sizeof(struct Node));
+	current->next->previous = current;
+	current->next->next = NULL;
+	current = current->next;
+	current->protocol = ip->ip_p;
+	current->ip_src = ip->ip_src;
+	current->ip_dst = ip->ip_dst;
+	if (ip->ip_p == IPPROTO_TCP) {
+		current->th_sport = tcp->th_sport;
+		current->th_dport = tcp->th_dport;
+	} else if (ip->ip_p == IPPROTO_UDP) {
+		current->th_sport = udp->th_sport;
+		current->th_dport = udp->th_dport;
+	}
+	current->packet_count = 1;
 }
-
-
-// 	printf("%s", log);
-// 	syslog(LOG_DEBUG, "%s", log);
-
-// 	/* first packet of new session recieved */
-// 	pkt_count = 1;
-// 	sess_count++;
-// 	curr_ip = ip;
-
-// 	/* periodical report */
-// 	time_t now = time(NULL);
-// 	if (now - sess_timer > sess_period) {
-// 		sess_timer = now;
-// 		printf("\n** there were %d UDP Sessions and %d TCP Sessions in last %d seconds. **\n", udp_sess_per, tcp_sess_per, 
-// 				sess_period);
-// 		syslog(LOG_INFO, " there were %d UDP Sessions and %d TCP Sessions in last %d seconds. ", udp_sess_per, tcp_sess_per,
-// 				 sess_period);
-// 		tcp_sess_per = 0;
-// 		udp_sess_per = 0;
-// 	}
-// }
 
 
 #define ip_period 	60
@@ -342,12 +353,9 @@ void ip_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *pac
 	}
 
 	/* print source and destination IP addresses */
-	char *s_ip = inet_ntoa(ip->ip_src);
-	char *d_ip = inet_ntoa(ip->ip_dst);
-	int s_port, d_port;
-	sprintf(temp, "\tFrom: %s\n", s_ip);
+	sprintf(temp, "\tFrom: %s\n", inet_ntoa(ip->ip_src));
 	strcat(log, temp);
-	sprintf(temp, "\tTo: %s\n", d_ip);
+	sprintf(temp, "\tTo: %s\n", inet_ntoa(ip->ip_dst));
 	strcat(log, temp);
 
 	/* determine protocol, detect source and destination ports */
@@ -361,18 +369,16 @@ void ip_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *pac
     		syslog(LOG_ERR, "\t* Invalid TCP header length: %u bytes\n", size_tcp);
 			return;
 		}
-		s_port = ntohs(tcp->th_sport);
-		d_port = ntohs(tcp->th_dport);
-		sprintf(temp, "\tSrc port: %d\n", s_port);
+		sprintf(temp, "\tSrc port: %d\n", ntohs(tcp->th_sport));
 		strcat(log, temp);
-		sprintf(temp, "\tDst port: %d\n", d_port);
+		sprintf(temp, "\tDst port: %d\n", ntohs(tcp->th_dport));
 		strcat(log, temp);
 		tcp_count++;
 
-		session_hijacking(ip->ip_p, s_ip, d_ip, s_port, d_port);
+		session_hijacking(ip, size_ip, tcp, NULL);
 
 		/* check whether TCP packet is http or not, add http payload to "log" */
-		char payload[10000];
+		char payload[1000];
 		char *http = http_packet(packet, size_ip, size_tcp, ip, payload);
 		if (http != NULL)	{
 			strcat(log, http);
@@ -390,15 +396,15 @@ void ip_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *pac
 			syslog(LOG_ERR, "\t* Invalid TCP header length: %u bytes\n", size_udp);
 			return;
 		}
-		s_port = ntohs(udp->th_sport);
-		d_port = ntohs(udp->th_dport);
+		int s_port = ntohs(udp->th_sport);
+		int d_port = ntohs(udp->th_dport);
 		sprintf(temp, "\tSrc port: %d\n", s_port);
 		strcat(log, temp);
 		sprintf(temp, "\tDst port: %d\n", d_port);
 		strcat(log, temp);
 		udp_count++;
 
-		session_hijacking(ip->ip_p, s_ip, d_ip, s_port, d_port);
+		session_hijacking(ip, size_ip, NULL, udp);
 
 		/* check whether UDP packet is DNS or not, add DNS payload to "log" */
 		if (s_port == 53 || d_port == 53) {
