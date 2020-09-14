@@ -215,14 +215,6 @@ int same_session_port(int curr_s, int curr_d, int pkt_s, int pkt_d) {
 
 #define sess_period	30
 time_t sess_timer;
-// struct Session {
-// 		u_char protocol;
-// 		struct  in_addr ip_src,ip_dst;
-// 		u_short th_sport;
-// 		u_short th_dport;
-// 		unsigned int packet_count;               
-// };
-
 struct Node {
 		struct Node *next;
 		u_char protocol;
@@ -260,10 +252,16 @@ int same_session_ip(const struct Node *sess, const struct sniff_ip *pkt)	{
 }
 
 
-void session_hijacking(struct sniff_ip *ip, int size_ip, struct sniff_tcp *tcp, struct sniff_udp *udp)	{
+void session_hijacking(struct sniff_ip *ip, int size_ip, struct sniff_tcp *tcp, struct sniff_udp *udp, char *log)	{
 	static struct Node *head = NULL;
 	static struct Node *current = NULL;
 
+	char temp[200] = {'\0'};
+
+	static unsigned int udp_sess_per = 0;				/* number of udp sessions in this period */
+	static unsigned int tcp_sess_per = 0;				/* number of tcp sessions in this period */
+
+	/* first packet of first session */
 	if (head == NULL) {
 		head = (struct Node *) malloc(sizeof(struct Node));
 		head->protocol = ip->ip_p;
@@ -273,34 +271,46 @@ void session_hijacking(struct sniff_ip *ip, int size_ip, struct sniff_tcp *tcp, 
 		if (ip->ip_p == IPPROTO_TCP) {
 			head->th_sport = tcp->th_sport;
 			head->th_dport = tcp->th_dport;
+			tcp_sess_per++;
 		} else if (ip->ip_p == IPPROTO_UDP) {
 			head->th_sport = udp->th_sport;
 			head->th_dport = udp->th_dport;
+			udp_sess_per++;
 		}
 		head->packet_count = 1;
 		head->next = NULL;
 		head->previous = NULL;
 		current = head;
+
+		sprintf(temp, "\t\t\t##  this packet is start of new session.  ##\n");
+		strcat(log, temp);
 		return;
 	}
+
+	/* iterate over sessions to see whether this packet belongs to one of them or not */
 	struct Node *node = current;
 	while (node != NULL) {
 		if (ip->ip_p == IPPROTO_TCP) {
 			if (same_session_ip(node, ip) &&
 				same_session_port(ntohs(node->th_sport), ntohs(node->th_dport), ntohs(tcp->th_sport), ntohs(tcp->th_dport))) {
 				node->packet_count++;
+				sprintf(temp, "\t\t\t^^  this packet belongs to a session with same protocol and sockets. This session have had %d packets so far.  ^^\n", node->packet_count);
+				strcat(log, temp);
 				return;
 			}
 		} else if (ip->ip_p == IPPROTO_UDP) {
 			if (same_session_ip(node, ip) &&
 				same_session_port(ntohs(node->th_sport), ntohs(node->th_dport), ntohs(udp->th_sport), ntohs(udp->th_dport))) {
 				node->packet_count++;
+				sprintf(temp, "\t\t\t^^  this packet belongs to a session with same protocol and sockets. This session have had %d packets so far.  ^^\n", node->packet_count);
+				strcat(log, temp);
 				return;
 			}
 		}
-		printf("\n^^  %d\t%d  ^^\n", node->protocol, node->packet_count);
 		node = node->previous;
 	}
+
+	/* packet didn't belong to saved sessiond; so new session begins */
 	current->next = (struct Node *) malloc(sizeof(struct Node));
 	current->next->previous = current;
 	current->next->next = NULL;
@@ -311,11 +321,27 @@ void session_hijacking(struct sniff_ip *ip, int size_ip, struct sniff_tcp *tcp, 
 	if (ip->ip_p == IPPROTO_TCP) {
 		current->th_sport = tcp->th_sport;
 		current->th_dport = tcp->th_dport;
+		tcp_sess_per++;
 	} else if (ip->ip_p == IPPROTO_UDP) {
 		current->th_sport = udp->th_sport;
 		current->th_dport = udp->th_dport;
+		udp_sess_per++;
 	}
 	current->packet_count = 1;
+	sprintf(temp, "\t\t\t##  this packet is start of new session.  ##\n");
+	strcat(log, temp);
+
+	/* periodical report */
+	time_t now = time(NULL);
+	if (now - sess_timer > sess_period) {
+		sess_timer = now;
+		printf("\n** there were %d UDP Sessions and %d TCP Sessions in last %d seconds. **\n", udp_sess_per, tcp_sess_per, 
+				sess_period);
+		syslog(LOG_INFO, " there were %d UDP Sessions and %d TCP Sessions in last %d seconds. ", udp_sess_per, tcp_sess_per,
+				 sess_period);
+		tcp_sess_per = 0;
+		udp_sess_per = 0;
+	}
 }
 
 
@@ -375,7 +401,7 @@ void ip_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *pac
 		strcat(log, temp);
 		tcp_count++;
 
-		session_hijacking(ip, size_ip, tcp, NULL);
+		session_hijacking(ip, size_ip, tcp, NULL, log);
 
 		/* check whether TCP packet is http or not, add http payload to "log" */
 		char payload[1000];
@@ -404,7 +430,7 @@ void ip_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *pac
 		strcat(log, temp);
 		udp_count++;
 
-		session_hijacking(ip, size_ip, NULL, udp);
+		session_hijacking(ip, size_ip, NULL, udp, log);
 
 		/* check whether UDP packet is DNS or not, add DNS payload to "log" */
 		if (s_port == 53 || d_port == 53) {
