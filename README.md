@@ -1,6 +1,4 @@
-# p2-advanced
-
-### packet sniffing program
+# packet sniffing program
 
 **to install and use the project, follow bellow steps:**
 1. clone the project
